@@ -24,10 +24,10 @@ export function getAuthToken() {
   return localStorage.getItem(TOKEN_STORAGE_KEY);
 }
 
-export function setAuthToken(token) {
+export async function setAuthToken(token) {
   if (!token) {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
-    if (supabase) supabase.auth.setSession(null);
+    if (supabase) await supabase.auth.setSession(null);
   } else {
     localStorage.setItem(TOKEN_STORAGE_KEY, token);
 
@@ -36,10 +36,14 @@ export function setAuthToken(token) {
     // We provide a dummy refresh_token because usage with custom tokens doesn't use the refresh flow,
     // but the method expects the property.
     if (supabase) {
-      supabase.auth.setSession({
-        access_token: token,
-        refresh_token: token // Reuse token as dummy refresh
-      }).catch(err => debugLog("setSession error (ignored)", err));
+      try {
+        await supabase.auth.setSession({
+          access_token: token,
+          refresh_token: token, // Reuse token as dummy refresh
+        });
+      } catch (err) {
+        debugLog("setSession error (ignored)", err);
+      }
     }
   }
 }
@@ -68,7 +72,7 @@ export async function verifyAccessCode(accessCode) {
     }
 
     const data = await res.json();
-    setAuthToken(data.token);
+    await setAuthToken(data.token);
     return data; // { token, user: { id, displayName... } }
   } catch (err) {
     debugLog("verifyAccessCode error", err);
@@ -407,14 +411,27 @@ export async function getTeamById(teamId) {
 export async function autocompleteRiders(query) {
   if (OFFLINE_MODE) return [];
 
+  const season = 2025;
+
   const { data, error } = await supabase
     .from("riders")
-    .select("*")
+    .select(`
+      *,
+      rider_prices(season_year, price)
+    `)
     .ilike("rider_name", `%${query}%`)
     .limit(10);
 
   if (error) return [];
-  return data;
+
+  return data.map(r => {
+    // Flatten price
+    const priceObj = r.rider_prices?.find(p => p.season_year === season);
+    return {
+      ...r,
+      price: priceObj ? priceObj.price : 0
+    };
+  });
 }
 
 export async function getHistory() {
