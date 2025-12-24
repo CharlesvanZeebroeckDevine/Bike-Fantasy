@@ -1,0 +1,12 @@
+{
+    "name": "megabike-serverless",
+    "version": "1.0.0",
+    "scripts": {
+        "build": "echo 'No build step for root' && exit 0"
+    },
+    "dependencies": {
+        "@supabase/supabase-js": "^2.39.0",
+        "jsonwebtoken": "^9.0.2",
+        "supabase": "^2.70.5"
+    }
+}
