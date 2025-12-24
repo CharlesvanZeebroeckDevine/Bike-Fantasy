@@ -15,14 +15,13 @@ The app is optimized for deployment on [Vercel](https://vercel.com), which handl
     *   Select your GitHub repository.
 
 2.  **Project Configuration**
-    *   **Framework Preset**: Vite (should detect automatically).
-    *   **Root Directory**: `./` (Root of the repo).
-    *   **Build Command**: `cd frontend && npm install && npm run build` 
-        *   *Note: Since `frontend` is in a subdirectory, Vercel might auto-detect it if you set the Root Directory to `frontend`. However, our API functions are in `/api` (root). Use Root Directory = `.`.*
-        *   **Better Setting**:
-            *   **Root Directory**: `.`
-            *   **Build Command**: `cd frontend && npm install && npm run build`
-            *   **Output Directory**: `frontend/dist`
+    *   **Root Directory**: `.` (Leave as default)
+    *   **Framework Preset**: Create React App (or Other)
+    *   **Build Command**: `cd frontend && npm install && npm run build`
+        *   **Important**: Enter the command exactly as above. **Do not** add quotes around it.
+    *   **Output Directory**: `frontend/build`
+    *   **Install Command**: `cd frontend && npm install`
+        *   **Important**: Enter exactly as above. **Do not** add quotes.
 
 3.  **Environment Variables**
     Add the following variables in the Vercel Project Settings:
