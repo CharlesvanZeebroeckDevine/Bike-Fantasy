@@ -208,10 +208,17 @@ export async function getMyTeam() {
   if (error) throw error;
   if (!team) return null;
 
-  // Fetch riders
+  // Fetch riders with prices and points
   const { data: teamRiders } = await supabase
     .from("team_riders")
-    .select("slot, riders(id, rider_name, team_name, nationality, active)")
+    .select(`
+      slot,
+      riders (
+        id, rider_name, team_name, nationality, active,
+        rider_prices(season_year, price),
+        rider_points(season_year, points)
+      )
+    `)
     .eq("team_id", team.id);
 
   // Format response to match expected frontend structure
@@ -220,10 +227,22 @@ export async function getMyTeam() {
     teamName: team.team_name,
     totalPrice: team.total_cost,
     points: team.points,
-    riders: (teamRiders || []).map(tr => ({
-      ...tr.riders,
-      price: 0 // Price lookup would be in rider_prices if needed
-    }))
+    riders: (teamRiders || []).map(tr => {
+      const r = tr.riders;
+      // Extract specific season data (or default to 0)
+      const priceObj = r.rider_prices?.find(p => p.season_year === season);
+      const pointsObj = r.rider_points?.find(p => p.season_year === season);
+
+      return {
+        id: r.id,
+        rider_name: r.rider_name,
+        team_name: r.team_name,
+        nationality: r.nationality,
+        active: r.active,
+        price: priceObj ? priceObj.price : 0,
+        points: pointsObj ? pointsObj.points : 0
+      };
+    })
   };
 }
 
@@ -350,15 +369,38 @@ export async function getTeamById(teamId) {
 
   const { data: teamRiders } = await supabase
     .from("team_riders")
-    .select("slot, riders(id, rider_name, team_name, nationality, active)")
+    .select(`
+      slot,
+      riders (
+        id, rider_name, team_name, nationality, active,
+        rider_prices(season_year, price),
+        rider_points(season_year, points)
+      )
+    `)
     .eq("team_id", team.id);
+
+  const season = 2025; // TODO: make dynamic if needed
 
   return {
     id: team.id,
     teamName: team.team_name,
     ownerName: team.users?.display_name,
     points: team.points,
-    riders: (teamRiders || []).map(tr => tr.riders)
+    riders: (teamRiders || []).map(tr => {
+      const r = tr.riders;
+      const priceObj = r.rider_prices?.find(p => p.season_year === season);
+      const pointsObj = r.rider_points?.find(p => p.season_year === season);
+
+      return {
+        id: r.id,
+        rider_name: r.rider_name,
+        team_name: r.team_name,
+        nationality: r.nationality,
+        active: r.active,
+        price: priceObj ? priceObj.price : 0,
+        points: pointsObj ? pointsObj.points : 0
+      };
+    })
   };
 }
 
