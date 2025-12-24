@@ -15,8 +15,13 @@ if (!OFFLINE_MODE && (!SUPABASE_URL || !SUPABASE_ANON_KEY)) {
   console.warn("Missing REACT_APP_SUPABASE_URL or REACT_APP_SUPABASE_ANON_KEY");
 }
 
+// Global Supabase Client
+// We use the 'accessToken' option so Supabase calls getAuthToken() before every request.
+// This ensures the custom JWT is always included in the Authorization header.
 export const supabase = !OFFLINE_MODE
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    accessToken: async () => getAuthToken(),
+  })
   : null;
 
 export function getAuthToken() {
@@ -26,23 +31,8 @@ export function getAuthToken() {
 export function setAuthToken(token) {
   if (!token) {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
-    // Clear global header
-    if (supabase) supabase.auth.setSession(null);
   } else {
     localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    // Supabase JS doesn't support 'injecting' a custom JWT easily for the main auth session 
-    // without using setSession with a refresh token, BUT for simple REST calls via the client,
-    // we can set the global headers manually or just rely on the fact that we're doing
-    // direct DB calls.
-
-    // IMPORTANT: For "Access Code" Custom Auth, we usually treat the token as a Bearer
-    // for RLS. The Supabase client allows setting the access token manually:
-    if (supabase) {
-      supabase.functions.setAuth(token); // For Edge Functions
-      supabase.realtime.setAuth(token);  // For Realtime
-      // For standard DB queries, we override the header in the query or set it globally:
-      supabase.headers['Authorization'] = `Bearer ${token}`;
-    }
   }
 }
 
