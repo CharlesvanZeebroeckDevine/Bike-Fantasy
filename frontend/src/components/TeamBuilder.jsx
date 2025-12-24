@@ -96,6 +96,7 @@ export default function TeamBuilder({ onSubmit, isSubmitting }) {
                         const payload = {
                             teamName: teamName.trim(),
                             riders: slots.map((r) => ({
+                                id: r.id,
                                 rider_name: r.rider_name,
                             })),
                         };

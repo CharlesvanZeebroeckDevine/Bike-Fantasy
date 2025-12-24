@@ -32,7 +32,7 @@ The app is optimized for deployment on [Vercel](https://vercel.com), which handl
     | `REACT_APP_SUPABASE_ANON_KEY` | `eyJ...` | From Supabase |
     | `SUPABASE_URL` | `https://your-project.supabase.co` | *Same as above (for API)* |
     | `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | **Secret key** (for API) |
-    | `SUPABASE_JWT_SECRET` | `super-secret-jwt` | Found in Supabase -> Settings -> API |
+    | `SUPABASE_JWT_SECRET` | `super-secret-jwt` | **Critical:** Use the "Legacy HS256" (Shared Secret) found in Settings -> API -> JWT Settings. **Do NOT** use the "ECC" key. |
 
 4.  **Deploy**
     *   Click **Deploy**.
