@@ -67,7 +67,7 @@ export default function MyTeamPage() {
               setToken(res.token);
               debugLog("Verified access code", res.user);
             } catch (e) {
-              setError("Invalid code (or backend not running yet).");
+              setError(e?.message || "Invalid code (or backend not running yet).");
               debugLog("verifyAccessCode error", e?.message ?? e);
             } finally {
               setLoading(false);
