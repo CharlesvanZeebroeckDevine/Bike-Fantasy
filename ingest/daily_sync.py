@@ -14,9 +14,7 @@ from .scoring import points_for_rank
 from .supabase_client import get_supabase
 
 
-def _stable_rider_slug(name: str) -> str:
-    h = hashlib.sha1(name.encode("utf-8")).hexdigest()[:12]
-    return f"rider/{h}"
+from .utils import stable_rider_slug
 
 
 async def _fetch_html(slug: str) -> tuple[int, str]:
@@ -172,7 +170,7 @@ async def main() -> None:
             name = row.get("rider_name") or row.get("rider") or row.get("name")
             if not name:
                 continue
-            rider_slug = row.get("rider_url") or row.get("rider") or row.get("url") or _stable_rider_slug(str(name))
+            rider_slug = row.get("rider_url") or row.get("rider") or row.get("url") or stable_rider_slug(str(name), nationality)
             team_name = row.get("team") or row.get("team_name")
             nationality = row.get("nationality")
             riders_to_upsert.append(
@@ -207,7 +205,7 @@ async def main() -> None:
             name = row.get("rider_name") or row.get("rider") or row.get("name")
             if not name:
                 continue
-            rider_slug = row.get("rider_url") or row.get("rider") or row.get("url") or _stable_rider_slug(str(name))
+            rider_slug = row.get("rider_url") or row.get("rider") or row.get("url") or stable_rider_slug(str(name), row.get("nationality"))
             rider_id = id_by_slug.get(rider_slug)
             if not rider_id:
                 continue

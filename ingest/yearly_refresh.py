@@ -10,21 +10,7 @@ from typing import Any
 from .pcs_http import fetch_pcs_html
 from .pcs_parse import parse_rankings_php_uci_one_day, parse_rider_ranking_table
 from .supabase_client import get_supabase
-
-
-def _derive_price_from_points(rank_points: int) -> int:
-    """
-    Pricing rule (Megabike):
-    - price == PCS points from the configured ranking source.
-    """
-    return max(0, int(rank_points))
-
-
-def _stable_slug(name: str, nationality: str | None) -> str:
-    # If we don't have a PCS URL slug, use a stable hash-based slug.
-    base = f"{name}|{nationality or ''}".encode("utf-8")
-    h = hashlib.sha1(base).hexdigest()[:12]
-    return f"rider/{h}"
+from .utils import chunked, derive_price_from_points, stable_rider_slug
 
 
 def _load_seed_csv(path: str) -> list[dict[str, Any]]:
@@ -66,8 +52,7 @@ async def _try_parse_ranking(slug: str) -> dict[str, Any] | None:
         return None
 
 
-def _chunked(items: list[dict[str, Any]], size: int) -> list[list[dict[str, Any]]]:
-    return [items[i : i + size] for i in range(0, len(items), size)]
+
 
 
 async def _fetch_rankings_php_uci_one_day(date_str: str, limit: int = 1000) -> list[dict[str, Any]]:
@@ -193,7 +178,7 @@ async def main() -> None:
             except Exception:
                 price_int = None
 
-        pcs_slug = row.get("rider_url") or row.get("url") or row.get("rider") or _stable_slug(
+        pcs_slug = row.get("rider_url") or row.get("url") or row.get("rider") or stable_rider_slug(
             str(name), str(nationality) if nationality else None
         )
 
@@ -208,14 +193,14 @@ async def main() -> None:
         )
 
     # Upsert riders by pcs_slug in chunks (safe for 1000+ riders)
-    for batch in _chunked(riders_to_upsert, 500):
+    for batch in chunked(riders_to_upsert, 500):
         if batch:
             sb.table("riders").upsert(batch, on_conflict="pcs_slug").execute()
 
     # Fetch ids back for pricing upsert, keyed by pcs_slug (avoid duplicate names)
     pcs_slugs = [r["pcs_slug"] for r in riders_to_upsert if r.get("pcs_slug")]
     id_by_slug: dict[str, str] = {}
-    for batch in _chunked([{"pcs_slug": s} for s in pcs_slugs], 500):
+    for batch in chunked([{"pcs_slug": s} for s in pcs_slugs], 500):
         sl = [x["pcs_slug"] for x in batch]
         fetched = sb.table("riders").select("id, pcs_slug").in_("pcs_slug", sl).execute().data or []
         for r in fetched:
@@ -233,7 +218,7 @@ async def main() -> None:
             nationality = row.get("nationality")
             if not name:
                 continue
-            pcs_slug = _stable_slug(str(name), str(nationality) if nationality else None)
+            pcs_slug = stable_rider_slug(str(name), str(nationality) if nationality else None)
 
         rider_id = id_by_slug.get(str(pcs_slug))
         if not rider_id:
@@ -254,7 +239,7 @@ async def main() -> None:
         except Exception:
             pts_int = 0
 
-        final_price = price_int if price_int is not None else _derive_price_from_points(pts_int)
+        final_price = price_int if price_int is not None else derive_price_from_points(pts_int)
         prices_to_upsert.append(
             {
                 "season_year": args.season_year,
@@ -263,7 +248,7 @@ async def main() -> None:
             }
         )
 
-    for batch in _chunked(prices_to_upsert, 500):
+    for batch in chunked(prices_to_upsert, 500):
         if batch:
             sb.table("rider_prices").upsert(batch, on_conflict="season_year,rider_id").execute()
 

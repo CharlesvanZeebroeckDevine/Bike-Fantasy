@@ -19,7 +19,7 @@ export default function AccessCodeForm({ onSubmit, isLoading, error }) {
       >
         <input
           className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none"
-          placeholder="e.g. MB-ALBERT-2025"
+          placeholder="e.g. MB-your-access-code-2025"
           value={accessCode}
           onChange={(e) => setAccessCode(e.target.value)}
           autoComplete="off"

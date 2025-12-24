@@ -15,10 +15,15 @@ if (!OFFLINE_MODE && (!SUPABASE_URL || !SUPABASE_ANON_KEY)) {
   console.warn("Missing REACT_APP_SUPABASE_URL or REACT_APP_SUPABASE_ANON_KEY");
 }
 
-// Global Supabase Client
-export const supabase = !OFFLINE_MODE
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-  : null;
+// Global Supabase Client management
+// We use a custom JWT, so we cannot relying on supabase.auth.setSession (which expects GoTrue users).
+// Instead, we recreate the client with the Authorization header whenever the token changes.
+
+let supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+export function getSupabase() {
+  return supabase;
+}
 
 export function getAuthToken() {
   return localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -27,24 +32,24 @@ export function getAuthToken() {
 export async function setAuthToken(token) {
   if (!token) {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
-    if (supabase) await supabase.auth.setSession(null);
+    // Reset to anon client
+    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   } else {
     localStorage.setItem(TOKEN_STORAGE_KEY, token);
-
-    // Inject the custom token into Supabase's auth state.
-    // This allows the client to attach it to all DB requests automatically.
-    // We provide a dummy refresh_token because usage with custom tokens doesn't use the refresh flow,
-    // but the method expects the property.
-    if (supabase) {
-      try {
-        await supabase.auth.setSession({
-          access_token: token,
-          refresh_token: token, // Reuse token as dummy refresh
-        });
-      } catch (err) {
-        debugLog("setSession error (ignored)", err);
+    // Create client with custom header for RLS
+    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      auth: {
+        // Disable auto refresh/persist as we manage it manually
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
       }
-    }
+    });
   }
 }
 
@@ -54,6 +59,16 @@ if (savedToken) setAuthToken(savedToken);
 
 
 // --- API FUNCTIONS ---
+
+
+// Helper to parse JWT locally
+function parseJwt(token) {
+  try {
+    return JSON.parse(atob(token.split('.')[1]));
+  } catch (e) {
+    return null;
+  }
+}
 
 // 1. Auth: Calls Serverless Function /api/verify-code
 export async function verifyAccessCode(accessCode) {
@@ -72,7 +87,7 @@ export async function verifyAccessCode(accessCode) {
     }
 
     const data = await res.json();
-    await setAuthToken(data.token);
+    setAuthToken(data.token); // IMPORTANT: Update the client immediately
     return data; // { token, user: { id, displayName... } }
   } catch (err) {
     debugLog("verifyAccessCode error", err);
@@ -84,16 +99,27 @@ export async function verifyAccessCode(accessCode) {
 export async function getMe() {
   if (OFFLINE_MODE) return mockGetMe();
 
-  // We rely on RLS and the custom JWT (set via accessToken) to identify the user.
-  // Standard supabase.auth.getUser() is for GoTrue sessions, not our custom tokens.
+  const token = getAuthToken();
+  if (!token) throw new Error("Not authenticated");
 
-  const { data, error } = await supabase
+  const jwt = parseJwt(token);
+  if (!jwt || !jwt.sub) throw new Error("Invalid token");
+
+  const userId = jwt.sub;
+
+  const { data, error } = await getSupabase()
     .from("users")
     .select("id, display_name, profile_image_url")
+    .eq("id", userId) // Explicitly filter by ID
     .single();
 
   if (error) {
     debugLog("getMe error", error);
+    if (error.code === "PGRST116" || error.code === "401" || error.message?.includes("JWT")) {
+      console.error("CRITICAL AUTH ERROR:", error);
+      console.error("Current Token:", token);
+      console.warn("Retaining token for debugging purposes. Normally this would auto-logout.");
+    }
     throw error;
   }
 
@@ -107,17 +133,20 @@ export async function getMe() {
 export async function updateMe(payload) {
   if (OFFLINE_MODE) return mockUpdateMe(payload);
 
+  const token = getAuthToken();
+  if (!token) throw new Error("Not authenticated");
+  const jwt = parseJwt(token);
+  if (!jwt || !jwt.sub) throw new Error("Invalid token");
+  const userId = jwt.sub;
+
   const updates = {};
   if (payload.displayName) updates.display_name = payload.displayName;
   if (payload.profileImageUrl !== undefined) updates.profile_image_url = payload.profileImageUrl;
 
-  const { data: me } = await supabase.from("users").select("id").single();
-  if (!me) throw new Error("User not found");
-
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from("users")
     .update(updates)
-    .eq("id", me.id)
+    .eq("id", userId)
     .select()
     .single();
 
@@ -137,7 +166,7 @@ export async function getLatestRace() {
   const today = new Date().toISOString().slice(0, 10);
 
   // Latest race
-  const { data: race, error: raceErr } = await supabase
+  const { data: race, error: raceErr } = await getSupabase()
     .from("races")
     .select("id, name, race_date")
     .lte("race_date", today)
@@ -149,7 +178,7 @@ export async function getLatestRace() {
   if (!race) return null;
 
   // Results
-  const { data: results, error: resErr } = await supabase
+  const { data: results, error: resErr } = await getSupabase()
     .from("race_results")
     .select("rank, points_awarded, riders(rider_name, team_name)")
     .eq("race_id", race.id)
@@ -174,7 +203,7 @@ export async function getNextRace() {
   if (OFFLINE_MODE) return mockNextRace();
 
   const today = new Date().toISOString().slice(0, 10);
-  const { data: race, error } = await supabase
+  const { data: race, error } = await getSupabase()
     .from("races")
     .select("id, name, race_date")
     .gt("race_date", today)
@@ -196,24 +225,30 @@ export async function getNextRace() {
 export async function getMyTeam() {
   if (OFFLINE_MODE) return mockMyTeam();
 
-  const { data: me } = await supabase.from("users").select("id").single();
-  if (!me) return null;
+  const token = getAuthToken();
+  if (!token) return null;
+  const jwt = parseJwt(token);
+  if (!jwt || !jwt.sub) return null;
+  const userId = jwt.sub;
 
   // TODO: support current season dynamic
   const season = 2025;
 
-  const { data: team, error } = await supabase
+  const { data: team, error } = await getSupabase()
     .from("teams")
     .select("*")
-    .eq("user_id", me.id)
+    .eq("user_id", userId)
     .eq("season_year", season)
     .maybeSingle();
 
   if (error) throw error;
+  // Fetch riders with prices and points
+  console.log("DEBUG: getMyTeam user:", userId, "season:", season);
+  console.log("DEBUG: getMyTeam found team:", team);
+
   if (!team) return null;
 
-  // Fetch riders with prices and points
-  const { data: teamRiders } = await supabase
+  const { data: teamRiders } = await getSupabase()
     .from("team_riders")
     .select(`
       slot,
@@ -254,16 +289,19 @@ export async function createMyTeam(payload) {
   if (OFFLINE_MODE) return;
 
   // 1. Get User ID (implicitly handled by RLS, but we need ID for foreign keys)
-  const { data: me } = await supabase.from("users").select("id").single();
-  if (!me) throw new Error("User not found (are you logged in?)");
+  const token = getAuthToken();
+  if (!token) throw new Error("Not authenticated");
+  const jwt = parseJwt(token);
+  if (!jwt || !jwt.sub) throw new Error("Invalid token");
+  const userId = jwt.sub;
 
   const season = 2025;
 
   // 2. Create Team
-  const { data: team, error: teamErr } = await supabase
+  const { data: team, error: teamErr } = await getSupabase()
     .from("teams")
     .insert({
-      user_id: me.id,
+      user_id: userId,
       team_name: payload.teamName,
       season_year: season,
       total_cost: 0, // Should calculate server-side or assume valid if trusted. (TODO: calculate from riders)
@@ -319,12 +357,12 @@ export async function createMyTeam(payload) {
   for (let i = 0; i < riderInserts.length; i++) {
     if (!riderInserts[i].rider_id) {
       const name = payload.riders[i].rider_name;
-      const { data: r } = await supabase.from("riders").select("id").eq("rider_name", name).maybeSingle();
+      const { data: r } = await getSupabase().from("riders").select("id").eq("rider_name", name).maybeSingle();
       if (r) riderInserts[i].rider_id = r.id;
     }
   }
 
-  const { error: ridersErr } = await supabase
+  const { error: ridersErr } = await getSupabase()
     .from("team_riders")
     .insert(riderInserts);
 
@@ -341,7 +379,7 @@ export async function getCurrentLeaderboard() {
   if (OFFLINE_MODE) return mockLeaderboard();
 
   const season = 2025;
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from("teams")
     .select("id, team_name, points, users(display_name)")
     .eq("season_year", season)
@@ -363,7 +401,7 @@ export async function getCurrentLeaderboard() {
 export async function getTeamById(teamId) {
   if (OFFLINE_MODE) return null;
 
-  const { data: team, error } = await supabase
+  const { data: team, error } = await getSupabase()
     .from("teams")
     .select("*, users(display_name)")
     .eq("id", teamId)
@@ -371,7 +409,7 @@ export async function getTeamById(teamId) {
 
   if (error) return null;
 
-  const { data: teamRiders } = await supabase
+  const { data: teamRiders } = await getSupabase()
     .from("team_riders")
     .select(`
       slot,
@@ -413,7 +451,7 @@ export async function autocompleteRiders(query) {
 
   const season = 2025;
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from("riders")
     .select(`
       *,
@@ -436,7 +474,7 @@ export async function autocompleteRiders(query) {
 
 export async function getHistory() {
   // Simple fetch from 'seasons' table
-  const { data } = await supabase.from("seasons").select("*").order("season_year", { ascending: false });
+  const { data } = await getSupabase().from("seasons").select("*").order("season_year", { ascending: false });
   // adapt to frontend expected format...
   return { podium: [], mostTitles: [] }; // placeholder
 }

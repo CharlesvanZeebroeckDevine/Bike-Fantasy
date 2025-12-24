@@ -63,17 +63,23 @@ export default function MyTeamPage() {
             setError(null);
             try {
               const res = await verifyAccessCode(accessCode);
-              setAuthToken(res.token);
+              // setAuthToken called inside verifyAccessCode helpers if valid
+              // But here we might also need to set local state if not auto-synced immediately
+              // verifyAccessCode already calls setAuthToken(data.token)
               setToken(res.token);
               debugLog("Verified access code", res.user);
             } catch (e) {
               setError(e?.message || "Invalid code (or backend not running yet).");
               debugLog("verifyAccessCode error", e?.message ?? e);
-            } finally {
-              setLoading(false);
+              setLoading(false); // Only stop loading on error, otherwise we proceed to loadAuthed
             }
+            // Note: If success, useEffect [authed] triggers loadAuthed, which sets loading=true again
           }}
         />
+      ) : loading && !team ? (
+        <div className="p-8 text-center text-slate-500 animate-pulse">
+          Loading your team...
+        </div>
       ) : team ? (
         <TeamSummary
           me={me}

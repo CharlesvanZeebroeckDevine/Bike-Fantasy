@@ -14,12 +14,22 @@ export default async function handler(req, res) {
     }
 
     // 1. Init Supabase Service Client (Admin)
+    // Validating env vars
+    // Try loading dotenv if available (dev mode specific)
+    try { require('dotenv').config({ path: '../.env' }); } catch (e) { }
+    try { require('dotenv').config({ path: '.env' }); } catch (e) { }
+
     const supabaseUrl = process.env.SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+    // DEBUG LOGGING
     if (!supabaseUrl || !serviceKey) {
-        console.error("Missing SUPABASE env vars in serverless function.");
-        return res.status(500).json({ error: "Server configuration error" });
+        console.error("DEBUG: ENV VARS MISSING!");
+        console.error("DEBUG: Available Keys:", Object.keys(process.env).filter(k => k.includes("SUPABASE") || k.includes("KEY") || k.includes("SECRET")));
+        console.error("DEBUG: SUPABASE_URL present?", !!supabaseUrl);
+        console.error("DEBUG: SUPABASE_SERVICE_ROLE_KEY present?", !!serviceKey);
+
+        return res.status(500).json({ error: "Server configuration error: Missing Credentials" });
     }
 
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -73,21 +83,15 @@ export default async function handler(req, res) {
 
     const jwtSecret = process.env.SUPABASE_JWT_SECRET;
     if (!jwtSecret) {
-        console.error("Missing SUPABASE_JWT_SECRET");
-        return res.status(500).json({ error: "Server configuration error" });
+        console.error("Missing SUPABASE_JWT_SECRET. Env vars available:", Object.keys(process.env).filter(k => k.includes("SECRET") || k.includes("KEY")));
+        return res.status(500).json({ error: "Server configuration error: Missing JWT Secret" });
     }
 
     const payload = {
         aud: "authenticated",
         role: "authenticated",
         sub: user.id,
-        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7), // 1 week
-        app_metadata: {
-            provider: "megabike_access_code"
-        },
-        user_metadata: {
-            access_code_id: codeRow.id
-        }
+        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7) // 1 week
     };
 
     const token = jwt.sign(payload, jwtSecret);

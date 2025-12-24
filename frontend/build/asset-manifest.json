@@ -1,0 +1,14 @@
+{
+  "files": {
+    "main.css": "/static/css/main.7d23ecc4.css",
+    "main.js": "/static/js/main.b9e15086.js",
+    "static/media/philippe_gilbert.png": "/static/media/philippe_gilbert.47f554299d3043247925.png",
+    "index.html": "/index.html",
+    "main.7d23ecc4.css.map": "/static/css/main.7d23ecc4.css.map",
+    "main.b9e15086.js.map": "/static/js/main.b9e15086.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.7d23ecc4.css",
+    "static/js/main.b9e15086.js"
+  ]
+}
